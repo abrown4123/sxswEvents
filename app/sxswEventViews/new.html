@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8">
+    <title>New Event</title>
+  </head>
+  <body>
+    <h1>create a new event</h1>
+    <form class="" action="/api/sxswEvents" method="post">
+      <input id="event_link" type="text" name="event_link" placeholder="Event Link" value="">
+      <input id="event_name" type="text" name="event_name" placeholder="Event Name" value="">
+      <input id="event_time" type="text" name="event_time" placeholder="Event Time" value="">
+      <input id="venue_link" type="text" name="venue_link" placeholder="Venu Link" value="">
+      <input id="venue_name" type="text" name="venue_name" placeholder="Venue Name" value="">
+      <input id="venue_address" type="text" name="venue_address" placeholder="Venue Address" value="">
+      <input id="primary_entry" type="text" name="primary_entry" placeholder="Primary Entry" value="">
+      <input id="event_description" type="text" name="event_description" placeholder="Event Description" value="">
+      <button id="submit-button" type="submit" name="button">Create Event!</button>
+    </form>
+
+    <style media="screen">
+      input {
+        display: block;
+      }
+    </style>
+
+    <script type="text/javascript">
+      window.onload = () => {
+        const submitButton = document.getElementById('submit-button');
+        submitButton.onclick = event => {
+          event.preventDefault();
+          console.log(event);
+
+          const eventLinkInput = document.getElementById('event_link');
+          const eventNameInput = document.getElementById('event_name');
+          const eventTimeInput = document.getElementById('event_time');
+
+          const payload = {
+            event_link: eventLinkInput.value,
+            event_name: eventNameInput.value,
+          };
+
+          const request = new XMLHttpRequest();
+          request.open('POST', '/api/sxswEvents', true);
+
+          request.setRequestHeader('Content-type', 'application/json');
+
+          request.onreadystatechange = function() {//Call a function when the state changes.
+            if(request.readyState == XMLHttpRequest.DONE && request.status == 200) {
+                    // Request finished. Do processing here.
+                const body = JSON.parse(request.responseText);
+                const sxswEvent = body[0];
+                window.location = 'http://localhost:9000/api/sxswEvents/' + sxswEvent.event_id
+            }
+          }
+          request.onloadend = event => console.log(event);
+
+          request.send(JSON.stringify(payload));
+        };
+      }
+    </script>
+  </body>
+</html>
