@@ -20,9 +20,25 @@ class App extends Component {
   }
 
   render() {
-    const event = this.state.data[0] || {};
+    const events = this.state.data || [];
+    console.log(events);
     return(
-        <div>{event.event_id}</div>
+        <div>
+          <table>
+            <tbody>
+              <tr>
+                <th>Event Id</th>
+                <th>Event Name</th>
+              </tr>
+              {
+                events.map((event, idx) => <tr key={idx}>
+                  <td>{event.event_id}</td>
+                  <td><a href={event.event_link}>{event.event_name}</a></td>
+                </tr>)
+              }
+            </tbody>
+          </table>
+        </div>
     );
   };
 }

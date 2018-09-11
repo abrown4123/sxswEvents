@@ -131,11 +131,53 @@ var App = function (_Component) {
   }, {
     key: 'render',
     value: function render() {
-      var event = this.state.data[0] || {};
+      var events = this.state.data || [];
+      console.log(events);
       return _react2.default.createElement(
         'div',
         null,
-        event.event_id
+        _react2.default.createElement(
+          'table',
+          null,
+          _react2.default.createElement(
+            'tbody',
+            null,
+            _react2.default.createElement(
+              'tr',
+              null,
+              _react2.default.createElement(
+                'th',
+                null,
+                'Event Id'
+              ),
+              _react2.default.createElement(
+                'th',
+                null,
+                'Event Name'
+              )
+            ),
+            events.map(function (event, idx) {
+              return _react2.default.createElement(
+                'tr',
+                { key: idx },
+                _react2.default.createElement(
+                  'td',
+                  null,
+                  event.event_id
+                ),
+                _react2.default.createElement(
+                  'td',
+                  null,
+                  _react2.default.createElement(
+                    'a',
+                    { href: event.event_link },
+                    event.event_name
+                  )
+                )
+              );
+            })
+          )
+        )
       );
     }
   }]);
