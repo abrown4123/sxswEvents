@@ -38,7 +38,7 @@ class SxswEventsController {
   }
 
   update() {
-
+    return SxswEventModel.update(this.params.id, this.params)
   }
 
   create() {
@@ -47,7 +47,7 @@ class SxswEventsController {
   }
 
   index() {
-
+    return SxswEventModel.get();
   }
 }
 

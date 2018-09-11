@@ -20,14 +20,14 @@
 //   }
 // };
 const path = require('path');
-
+console.log(__dirname)
 
 module.exports = {
   devtool: 'source-map',
   entry: './app/js/index.js',
   output: {
     filename: 'bundle.js',
-    path: path.resolve(__dirname, 'dist/')
+    path: path.resolve(__dirname + '/dist/')
   },
   module: {
     rules: [

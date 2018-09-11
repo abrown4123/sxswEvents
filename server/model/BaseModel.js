@@ -1,12 +1,28 @@
-const dbConnection = require('../dbConnection.js');
+const DBInterface = require('../DatabaseInterface');
+const logger = require('../utils/logger.js');
 
-/** defines BaseModel class */
 class BaseModel {
   /**
-   * @name constructor
-   * @description base class for all models
+   * @name getColumns
+   * @description gets the columns for the given model
+   * @return {Promise}
    */
-  constructor() {
+  static getColumns() {
+    if (this.columns) Promise.resolve(this.columns);
+
+    const query = `
+      SELECT
+        *
+      FROM
+        ${this.tableName}
+      LIMIT 1
+    `;
+
+    return this.query(query, [])
+      .then(result => {
+        this.columns = result.fields.map(f => f.name);
+        return this.columns;
+      });
   }
 
   /**
@@ -24,71 +40,43 @@ class BaseModel {
           if (col === this.primaryKey) return;
           model[col] = parameters[col];
         });
+        return this.createRelationshipModels(model, parameters);
+      });
+  }
+
+  /**
+   * @name createRelationshipModels
+   * @description generates models for has type relationships on this model
+   * @param {Object} model - parent model
+   * @param {Array} parameters - data to create models with
+   * @return {Promise}
+   */
+  static createRelationshipModels(model, parameters) {
+    if (!this.relationships) return model;
+
+    logger.warning('Only has_* type relationship models will be generated through parent model.');
+    const promiseArray = this.relationships
+      .filter(rel => rel.hasMany || rel.hasOne)
+      .map(rel => {
+        const data = parameters[rel.as] || [];
+        const relModels = data.map(datum => {
+          return rel.model.createModel(datum)
+        });
+        return Promise.all(relModels)
+          .then(result => ({ model: result, as: rel.as }));
+      });
+
+    return Promise.all(promiseArray)
+      .then(rels => {
+        logger.info(rels)
+        rels.forEach( rel => model[rel.as] = rel.model );
         return model;
       });
   }
 
   /**
-   * @name getColumns
-   * @description gets the columns for the given model
-   * @return {Promise}
-   */
-  static getColumns() {
-    const query = `
-      SELECT
-        *
-      FROM
-        ${this.tableName}
-      LIMIT 1
-    `;
-
-    if (!this.columns) {
-      return this.query(query, [])
-        .then(result => {
-          this.columns = result.fields.map(f => f.name);
-          return this.columns;
-        });
-    }
-
-    return Promise.resolve(this.columns);
-  }
-
-  /**
-   * @name query
-   * @description intermediate function for db querying
-   * @param {String} query - sql query to execute
-   * @param {Array} params - parameters for query injection
-   * @return {Promise}
-   */
-  static query(query, params) {
-    console.log(query);
-    return this.connection
-      .then(connection => {
-        return this._getQuery(connection, query, params);
-      });
-  }
-
-  /**
-   * @name _getQuery
-   * @description executes query on database
-   * @param {Object} connection - connection to db
-   * @param {String} query - sql query to execute
-   * @param {Array} params - parameters for query injection
-   * @return {Promise}
-   */
-  static _getQuery(connection, query, params) {
-    if (global.logQueries) console.log(query);
-    return (new Promise((resolve, reject) => {
-      connection.query(query, params || [], (err, res) => {
-        if (err) return reject(err);
-        return resolve(res);
-      });
-    }));
-  }
-
-  /**
    * @name save
-   * @description persists a model to the database
+   * @description persist model and it's dependents to the database
    * @return {Promise}
    */
   save() {
@@ -112,63 +100,64 @@ class BaseModel {
 
         return thisClass.query(query, params);
       })
-      .then(queryResult => thisClass.queryToModel(queryResult));
+      .then(result => _queryToModel(result, thisClass))
+      .then(result => result[0])
+      .then(model => {
+        const relationships = thisClass.relationships || [];
+        const saveRelationships = relationships
+          .filter(rel => rel.hasMany || rel.hasOne)
+          .map(rel => {
+            const models = this[rel.as] || [];
+            // NOTE: assigns foreign key to children
+            models.forEach(m => m[thisClass.primaryKey] = model[thisClass.primaryKey]);
+            return rel.model.save(models)
+              .then(models => ({ key: rel.as, models: models }));
+          })
+
+        return Promise.all(saveRelationships)
+          .then(results => {
+            results.forEach(result => {
+              model[result.key] = result.models;
+            });
+            return model;
+          });
+      })
   }
 
   /**
-   * @name update
-   * @description updates a given record
-   * @param {Object} id - object containing the primary key name and
-   *  value of row to update
+   * @name save
+   * @description persist model and it's dependents to the database
+   * @param {Array} - array of models to be saved
    * @return {Promise}
    */
-  update() {
-    const thisClass = this.constructor;
-
-    return thisClass.getColumns()
+  static save(models) {
+    return this.getColumns()
       .then(columns => {
-        // TODO: sanitize parameters
-        const valueString =
-          columns.map((column, idx) => `${column} = $${idx + 2}`).join(',');
-        const values = columns.map(col => this[col]);
-        values.unshift(this[thisClass.primaryKey]);
+        // TODO: cache columns without primary key to prevent needing to filter?
+        const insert = `INSERT INTO ${this.tableName} (${columns.filter(c => c !== this.primaryKey)})`;
+        const params = [];
+        let paramCount = 1;
+
+        const valuesArray = models.map(model => {
+          const values = [];
+          columns.forEach(col => {
+            if (col === this.primaryKey) return;
+            values.push(`$${paramCount}`);
+            paramCount++;
+            params.push(model[col] || null);
+          });
+          return '(' + values.join(',') + ')';
+        });
 
         const query = `
-          UPDATE
-            ${thisClass.tableName}
-          SET
-            ${valueString}
-          WHERE
-            ${thisClass.primaryKey} = $1
-          RETURNING
-            *
+          ${insert}
+          VALUES ${valuesArray.join(',\n')}
+          RETURNING *;
         `;
 
-        return thisClass.query(query, values)
-          .then(queryResult => thisClass.queryToModel(queryResult));
-      });
-  }
-
-  /**
-   * @name destroy
-   * @description deletes record associated with this model
-   * @return {Promise}
-   */
-  destroy() {
-    const thisClass = this.constructor;
-    const primaryKey = thisClass.primaryKey;
-
-    const query = `
-      DELETE FROM
-        ${thisClass.tableName}
-      WHERE
-        ${primaryKey} = $1
-      RETURNING
-        *
-    `;
-
-    return thisClass.query(query, [ this[primaryKey] ])
-      .then(queryResult => thisClass.queryToModel(queryResult));
+        return this.query(query, params);
+      })
+      .then(result => _queryToModel(result, this))
   }
 
   /**
@@ -178,6 +167,8 @@ class BaseModel {
    * @return {Promise}
    */
   static find(queryOptions) {
+    // TODO: combine find and search. if queryOptions is string or number, use
+    //  as PK. if it is an object, create where clause to search
     const query = `
       SELECT
         *
@@ -188,9 +179,70 @@ class BaseModel {
     `;
 
     return this.query(query, [])
-      .then(queryResult => this.queryToModel(queryResult));
+      .then(queryResult => _queryToModel(queryResult, this));
   }
 
+  /**
+   * @name deepFind
+   * @description
+   * @param
+   * @return
+   */
+  static deepFind(options) {
+    const query = `
+      SELECT
+        row_to_json(t)
+      FROM (
+        SELECT
+          *
+          ${this.genRelationshipSelect()}
+        FROM
+          ${this.tableName}
+        WHERE
+          ${this.primaryKey} = $1
+        ) t
+    `;
+
+    return this.query(query, [ options[this.primaryKey] ])
+      .then(result => {
+        if (result.rows.length < 1) return null;
+        return result.rows[0].row_to_json;
+      })
+      .catch(logger.error);
+  }
+
+  /**
+   * @name genRelationshipSelect
+   * @description generates nested select for sql query
+   * @return {String}
+   */
+  static genRelationshipSelect() {
+    if (!this.relationships) return '';
+    return this.relationships.map(rel => {
+      const on = rel.on ||
+        `${this.tableName}.${this.primaryKey} = ` +
+        `${rel.model.tableName}.${this.primaryKey}\n`;
+
+      return `
+      , (
+        SELECT
+          array_to_json(array_agg(row_to_json(x)))
+        FROM (
+          SELECT
+            *
+            ${rel.model.genRelationshipSelect()}
+          FROM
+            ${rel.model.tableName}
+          WHERE
+            ${on}
+        ) AS x
+      ) AS ${rel.as}
+      `;
+    }).join('\n');
+  }
+
+  // TODO: combine with find and deep find
+  // TODO: rename this to just search?
   /**
    * @name searchQuery
    * @description finds object matching given query options
@@ -198,22 +250,92 @@ class BaseModel {
    * @return {Promise}
    */
   static searchQuery(queryOptions) {
-    // NOTE: use this for query method
-    const whereClause = Object.keys(queryOptions).map(key => {
-      return `${key} = '${queryOptions[key]}'`;
-    }).join(' AND ');
+    return this.getColumns()
+      .then(columns => {
+        const whereClause = columns
+          .filter(col => queryOptions[col] !== undefined)
+          .map((column, idx) => `${column} = $${idx + 1}`).join(',');
 
-    const query = `
-      SELECT
-        *
-      FROM
-        ${this.tableName}
-      WHERE
-        ${whereClause}
-    `;
+        const values = columns
+          .filter(col => queryOptions[col] !== undefined)
+          .map(col => queryOptions[col]);
 
-    return this.query(query, [])
-      .then(queryResult => this.queryToModel(queryResult));
+        const query = `
+          SELECT
+            *
+          FROM
+            ${this.tableName}
+          WHERE
+            ${whereClause}
+        `;
+
+        return this.query(query, values)
+          .then(queryResult => _queryToModel(queryResult, this));
+      });
+  }
+
+  // TODO: improve save to be able to update or create with save method
+  /**
+   * @name update
+   * @description updates a given record
+   * @param {Object} id - object containing the primary key name and
+   *  value of row to update
+   * @return {Promise}
+   */
+  static update(id, params) {
+    return this.getColumns()
+      .then(columns => {
+        // TODO: sanitize parameters
+        const valueString = columns
+            .filter(col => params[col] !== undefined)
+            .map((column, idx) => `${column} = $${idx + 2}`).join(',');
+        const values = columns
+            .filter(col => params[col] !== undefined)
+            .map(col => params[col]);
+        values.unshift(id);
+
+        const query = `
+          UPDATE
+            ${this.tableName}
+          SET
+            ${valueString}
+          WHERE
+            ${this.primaryKey} = $1
+          RETURNING
+            *
+        `;
+
+        return this.query(query, values)
+          .then(queryResult => _queryToModel(queryResult, this));
+      });
+  }
+
+
+
+  /**
+   * @name addRelationship
+   * @description adds a new relational relatationship to this model
+   * @param {Object} options - object with relationship info
+   */
+  static addRelationship(options) {
+    if (!this.relationships) this.relationships = [];
+    if (!options.as) options.as = options.model.tableName;
+
+    this.relationships.push(options);
+  }
+
+  /**
+   * @name query
+   * @description intermediate function for db querying, unwraps connection promise
+   * @param {String} query - sql query to execute
+   * @param {Array} params - parameters for query injection
+   * @return {Promise}
+   */
+  static query(query, params) {
+    return this.connection
+      .then(connection => {
+        return _getQuery(connection, query, params);
+      });
   }
 
   /**
@@ -235,25 +357,59 @@ class BaseModel {
     `;
 
     return this.query(query, [])
-      .then(queryResult => this.queryToModel(queryResult));
+      .then(queryResult => _queryToModel(queryResult, this));
   }
 
   /**
-   * @name queryToModel
-   * @description converts query results to model objects
-   * @param {Object} queryResult
-   * @return {Promise}
+   * @name closeConnection
+   * @description closes the connection to the server. used for testing and debugging
    */
-  static queryToModel(queryResult) {
-    const rows = queryResult.rows;
-    return rows.map(row => {
-      const model = new this();
-      Object.keys(row).forEach(key => model[key] = row[key]);
-      return model;
-    });
+  static closeConnection() {
+    logger.warning('DB CONNECTION IS SHARED BY ALL MODELS, ONLY CALL THIS ON PROGRAM EXIT');
+    this.connection.then(conn => conn.end())
   }
 }
 
-BaseModel.connection = dbConnection;
+
+// NOTE: PRIVATE METHODS
+
+/**
+ * @name _getQuery
+ * @description executes query on database
+ * @param {Object} connection - connection to db
+ * @param {String} query - sql query to execute
+ * @param {Array} params - parameters for query injection
+ * @return {Promise}
+ */
+function _getQuery(connection, query, params) {
+  logger.debug(query, params);
+  return (new Promise((resolve, reject) => {
+    connection.query(query, params || [], (err, res) => {
+      if (err) return reject(err);
+      return resolve(res);
+    });
+  }));
+}
+
+/**
+ * @name queryToModel
+ * @description converts query results to model objects
+ * @param {Object} queryResult
+ * @param {Function} modelClass
+ * @return {Promise}
+ */
+function _queryToModel(queryResult, modelClass) {
+  const rows = queryResult.rows;
+  return rows.map(row => {
+    const model = new modelClass();
+    Object.keys(row).forEach(key => model[key] = row[key]);
+    return model;
+  });
+}
+
+
+// NOTE: static attributes
+
+BaseModel.connection = DBInterface.getConnection();
 
 module.exports = BaseModel;

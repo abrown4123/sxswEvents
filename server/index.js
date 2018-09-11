@@ -1,17 +1,20 @@
 const fs = require('fs'),
       express = require('express'),
-      app = express(),
-      SxswEventsController = require('./Controller/SxswEventsController');
+      app = express();
 const bodyParser = require('body-parser');
+const DatabaseInterface = require('./DatabaseInterface');
+const dbConfig = {
+  user: 'sxswuser', // env var: PGUSER
+  database: 'sxsw2018', // env var: PGDATABASE
+  password: 'password', // env var: PGPASSWORD process.env.PGPASSWORD
+  max: 100 // max number of clients in the pool
+};
+DatabaseInterface.startConnection(dbConfig);
+
+const SxswEventsController = require('./Controller/SxswEventsController');
 
 app.use(bodyParser.json())
 
-
-app.get('/', function(req, res){
-  const file = fs.readFileSync(__dirname + '/../app/index.html', 'utf-8');
-  res.send(file);
-  res.end();
-})
 
 // app.get('/api/sxswevents/:event_id', (req, res) => {
 //   console.log(req.params);
@@ -45,8 +48,8 @@ app.get('/api/sxswEvents', (req, res) => {
       res.end();
     })
     .catch(err => {
-      res.end();
       res.send(' did not Show everything');
+      res.end();
     });
 });
 
@@ -58,8 +61,8 @@ app.get('/api/sxswEvents/:event_id', (req,res) => {
       res.end();
     })
     .catch(err => {
-      res.end();
       res.send('did not Show one Event');
+      res.end();
     });
 })
 
@@ -71,21 +74,21 @@ app.get('/api/sxswEvents/:sxswEventsId/edit', (req, res) => {
       res.end();
     })
     .catch(err => {
-      res.end();
       res.send('did not I am Edited');
+      res.end();
     });
 });
 
 app.put('/api/sxswEvents/:sxswEventsId', (req, res) => {
   const controller = new SxswEventsController(req.params);
-  return controller.edit()
+  return controller.update()
     .then(result => {
       res.send(result);
       res.end();
     })
     .catch(err => {
-      res.end();
       res.send('did not Updated');
+      res.end();
     });
 });
 
@@ -115,6 +118,21 @@ app.post('/api/sxswEvents/', (req, res) => {
       res.send('did not created');
       res.end();
     })
+});
+
+// TODO: Get Rid of Read File Sync
+app.get('*', function(req, res){
+  console.log(req.url);
+  const url = req.url;
+  if (url==='/') {
+    const file = fs.readFileSync(__dirname + '/../app/index.html', 'utf-8');
+    res.send(file);
+    res.end();
+  } else {
+    const file = fs.readFileSync(__dirname + '/../dist' + url, 'utf-8');
+    res.send(file);
+    res.end();
+  }
 });
 
 app.listen(9000);
