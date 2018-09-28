@@ -1,5 +1,8 @@
 import React, { Component } from 'react';
 import ReactDOM from 'react-dom';
+import EventForm from './Components/EventForm';
+import Event from './Components/Event';
+import { BrowserRouter, Route, Switch, Link} from 'react-router-dom';
 
 class App extends Component {
   constructor(props) {
@@ -33,16 +36,31 @@ class App extends Component {
               {
                 events.map((event, idx) => <tr key={idx}>
                   <td>{event.event_id}</td>
-                  <td><a href={event.event_link}>{event.event_name}</a></td>
+                  <td><Link to={`/events/${event.event_id}`}>{event.event_name}</Link></td>
+                  <td><Link to={`/events/${event.event_id}/edit`}>Edit</Link></td>
                 </tr>)
               }
             </tbody>
           </table>
         </div>
-    );
-  };
+      );
+  }
 }
 
 window.onload = function() {
-  ReactDOM.render( <App />, document.getElementById('container'));
+  ReactDOM.render(
+    <div>
+      <BrowserRouter>
+        <div>
+          <Link to="/events/new"> Add new event </Link>
+          <Switch>
+            <Route exact path='/' component={App} />
+            <Route path='/events/new' component={EventForm} />
+            <Route path='/events/:id/edit' component={EventForm} />
+            <Route path='/events/:id' component={Event} />
+          </Switch>
+        </div>
+      </BrowserRouter>
+    </div>
+      , document.getElementById('container'));
 }

@@ -106,8 +106,8 @@ app.delete('/api/sxswEvents/:sxswEventsId', (req, res) => {
 });
 
 app.post('/api/sxswEvents/', (req, res) => {
+  console.log('posting to sxsw events', req, req.params, req.body)
   const controller = new SxswEventsController(req.body);
-  console.log('posting to sxsw events', req.params, req.body)
   return controller.create()
     .then(result => {
       res.send(JSON.stringify(result));
